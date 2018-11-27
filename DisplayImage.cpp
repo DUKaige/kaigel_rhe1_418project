@@ -56,8 +56,9 @@ void calculateGradient(float* pixelsAfterBlur, float* gradientMag, int* gradient
             if (gx < 0.000001 && gx > -0.000001) ang = 90;
             else ang = atan(gy / gx) / 3.1415926 * 180.0;
             if (ang < 0)
-                ang += 360;
-            printf("(gy / gx: %f  ang: %f \n", gy / gx, ang);
+                ang += 180;
+
+            //printf("(gy / gx: %f  ang: %f \n", gy / gx, ang);
             gradientAng[idx] = ((int) (ang + 22.5) / 45) * 45;
             idx++; 
         }
@@ -72,27 +73,27 @@ void thin(float* gradientMag, int* gradientAng, float* pixelsAfterThin, int widt
             float magR = 0;
             int ang = gradientAng[row * width + col];
             if (ang == 0 || ang == 180) {
-                if (row > 0) magL = gradientMag[(row - 1) * width + col];
+                if (row > 0) magL = gradientMag[row * width + col - 1];
 
-                if (row < height - 1) magR = gradientMag[(row + 1) * width + col];
+                if (row < height - 1) magR = gradientMag[row * width + col + 1];
             } 
 
             else if (ang == 45 || ang == 225) {
-                if (row > 0 && col < width - 1) magL = gradientMag[(row - 1) * width + col + 1];
+                if (row > 0 && col < width - 1) magL = gradientMag[(row + 1) * width + col + 1];
 
-                if (row < height - 1 && col > 0) magR = gradientMag[(row + 1) * width + col - 1];
+                if (row < height - 1 && col > 0) magR = gradientMag[(row - 1) * width + col - 1];
             } 
 
             else if (ang == 90 || ang == 270) {
-                if (col > 0) magL = gradientMag[row * width + col - 1];
+                if (col > 0) magL = gradientMag[(row - 1) * width + col];
 
-                if (col < width - 1) magR = gradientMag[row * width + col + 1];
+                if (col < width - 1) magR = gradientMag[(row + 1) * width + col];
             } 
 
             else if (ang == 135 || ang == 315) {
-                if (row > 0 && col > 0) magL = gradientMag[(row - 1) * width + col - 1];
+                if (row > 0 && col > 0) magL = gradientMag[(row + 1) * width + col - 1];
 
-                if (row < height - 1 && col < width - 1) magR = gradientMag[(row + 1) * width + col + 1];
+                if (row < height - 1 && col < width - 1) magR = gradientMag[(row - 1) * width + col + 1];
             }
             if (mag > magL && mag > magR) {
                 pixelsAfterThin[row * width + col] = mag;
@@ -106,7 +107,6 @@ void thin(float* gradientMag, int* gradientAng, float* pixelsAfterThin, int widt
 
 void doubleThreshold(float* pixelsAfterThin, int* pixelsStrongEdges, int* pixelsWeakEdges, int width, int height, float low_threshold, float high_threshold) {
     int idx = 0;
-    printf("%f %f\n", low_threshold, high_threshold);
     for (int row = 0; row < height; row ++) {
         for (int col = 0; col < width; col ++) {
             float val = pixelsAfterThin[idx];
@@ -185,8 +185,8 @@ int main(int argc, char** argv) {
             return -1;
     }
 
-    float low_threshold = 0.2;
-    float high_threshold = 0.6;
+    float low_threshold = 0.05;
+    float high_threshold = 0.1;
 
     Mat image;
     image = imread(argv[1], 0);
@@ -234,7 +234,7 @@ int main(int argc, char** argv) {
     for (int i = 0; i < mat.rows; ++i) {
         for (int j = 0; j < mat.cols; ++j) {
             Vec4b& rgba = mat.at<Vec4b>(i, j);
-            int val = pixelsAfterThin[i * width + j];
+            int val = pixelsStrongEdges[i * width + j] * 255;
             rgba[0] = val;
             rgba[1] = val;
             rgba[2] = val;
