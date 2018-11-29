@@ -1,8 +1,11 @@
 #include <stdio.h>
-#include <opencv2/opencv.hpp>
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <sstream>
 
-using namespace cv;
 using namespace std;
+
 #define kernel_width 7
 const float kernel[kernel_width][kernel_width] = {
     {0.00000067, 0.00002292, 0.00019117, 0.00038771, 0.00019117, 0.00002292, 0.00000067},
@@ -15,13 +18,13 @@ const float kernel[kernel_width][kernel_width] = {
 };
 
 void blur(float* pixels, float* output, int width, int height) {
-    int leftBound = kernel_width/2;
-    int topBound = kernel_width/2;
-    int rightBound = width - kernel_width/2;
-    int botBound = height - kernel_width/2;
+    // int leftBound = kernel_width/2;
+    // int topBound = kernel_width/2;
+    // int rightBound = width - kernel_width/2;
+    // int botBound = height - kernel_width/2;
     for (int row = 0; row < height; row ++) {
         for (int col = 0; col < width; col ++) {
-            int border = 0;
+            //int border = 0;
             
             float sum = 0;
             float denom = 0;
@@ -178,33 +181,57 @@ void edgeTrack(int* pixelsStrongEdges, int* pixelsWeakEdges, int width, int heig
     }
 }
 
+float* split(string str, char delimiter, int numElts) {
+    float* elts = (float*) malloc(sizeof(float) * numElts);
+    stringstream ss(str);
+    string tok;
+    int i = 0; 
 
-int main(int argc, char** argv) {    
+    while(getline(ss, tok, delimiter)) {
+        elts[i++] = stof(tok, nullptr);
+    }
+ 
+    return elts;
+}
+
+
+int main(int argc, char** argv) {  
+
     if (argc != 2) {
         printf("usage: DisplayImage.out <Image_Path>\n");
             return -1;
     }
 
-    float low_threshold = 0.05;
-    float high_threshold = 0.1;
+    float low_threshold = 0.1;
+    float high_threshold = 0.15;
+    float* pixels;
+    int height;
+    int width;
 
-    Mat image;
-    image = imread(argv[1], 0);
-    if (!image.data) {
-        printf("No image data \n");
+    string line;
+    ifstream myfile (argv[1]);
+    if (myfile.is_open()) {
+
+        getline(myfile, line);
+        height = static_cast<int>(stof(line, nullptr));
+        getline(myfile, line);
+        width = static_cast<int>(stof(line, nullptr));
+
+        pixels = (float*) malloc(sizeof(float) * height * width);
+        int idx = 0;
+        while (getline(myfile, line)) {
+            float* content = split(line, ' ', width);
+            memcpy(pixels+idx, content, sizeof(float) * width);
+            idx += width;
+            free(content);
+        }
+        myfile.close();
+    } 
+    else {
+        printf("Unable to open file"); 
         return -1;
     }
-    int width = image.cols;
-    int height = image.rows;
-    float* pixels = (float*) malloc(sizeof(float)*height*width);
-    int idx = 0;
-    for (int row = 0; row < height; row ++) {
-        for (int col = 0; col < width; col ++) {
-            Scalar intensity = image.at<uchar>(row, col);
-            pixels[idx] = intensity.val[0];
-            idx++;
-        }
-    }
+
 
     /* 1. blur */
     float* pixelsAfterBlur = (float*) malloc(sizeof(float)*height*width);
@@ -230,33 +257,20 @@ int main(int argc, char** argv) {
 
 
     /* 6. display */
-    Mat mat(height, width, CV_8UC4);
-    for (int i = 0; i < mat.rows; ++i) {
-        for (int j = 0; j < mat.cols; ++j) {
-            Vec4b& rgba = mat.at<Vec4b>(i, j);
-            int val = pixelsStrongEdges[i * width + j] * 255;
-            rgba[0] = val;
-            rgba[1] = val;
-            rgba[2] = val;
-            rgba[3] = 255;
+    ofstream outfile ("result.txt");
+    if (outfile.is_open()) {
+
+        outfile << height << "\n";
+        outfile << width << "\n";
+        int idx = 0;
+        for (int i = 0; i < height; i++) {
+            for (int j = 0; j < width; j++) {
+                outfile << pixelsStrongEdges[idx++] << " ";
+            }
+            outfile << "\n";
         }
+        outfile.close();
     }
 
-    vector<int> compression_params;
-    compression_params.push_back(CV_IMWRITE_JPEG_QUALITY);
-    compression_params.push_back(95);
-
-    try {
-        imwrite("wow.jpg", mat, compression_params);
-    }
-    catch (runtime_error& ex) {
-        fprintf(stderr, "Exception converting image to JPG format: %s\n", ex.what());
-        return 1;
-    }
-
-
-    imshow("Display Image", mat);
-
-    waitKey(0);
     return 0;
 }
