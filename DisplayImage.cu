@@ -7,43 +7,46 @@
 using namespace std;
 
 #define kernel_width 7
-const float kernel[kernel_width][kernel_width] = {
-    {0.00000067, 0.00002292, 0.00019117, 0.00038771, 0.00019117, 0.00002292, 0.00000067},
-    {0.00002292, 0.00078633, 0.00655965, 0.01330373, 0.00655965, 0.00078633, 0.00002292},
-    {0.00019117, 0.00655965, 0.05472157, 0.11098164, 0.05472157, 0.00655965, 0.00019117},
-    {0.00038771, 0.01330373, 0.11098164, 0.22508352, 0.11098164, 0.01330373, 0.00038771},
-    {0.00019117, 0.00655965, 0.05472157, 0.11098164, 0.05472157, 0.00655965, 0.00019117},
-    {0.00002292, 0.00078633, 0.00655965, 0.01330373, 0.00655965, 0.00078633, 0.00002292},
-    {0.00000067, 0.00002292, 0.00019117, 0.00038771, 0.00019117, 0.00002292, 0.00000067}
-};
 
-void blur(float* pixels, float* output, int width, int height) {
-    // int leftBound = kernel_width/2;
-    // int topBound = kernel_width/2;
-    // int rightBound = width - kernel_width/2;
-    // int botBound = height - kernel_width/2;
-    for (int row = 0; row < height; row ++) {
-        for (int col = 0; col < width; col ++) {
-            //int border = 0;
-            
-            float sum = 0;
-            float denom = 0;
-            int rowStart = row - kernel_width/2;
-            int rowEnd = row + kernel_width/2 + 1;
-            int colStart = col - kernel_width/2;
-            int colEnd = col + kernel_width/2 + 1;
-            for (int smallRow = rowStart; smallRow < rowEnd; smallRow ++) {
-                for (int smallCol = colStart; smallCol < colEnd; smallCol ++) {
-                    if (smallRow >= 0 && smallRow < height && smallCol >= 0 && smallCol < width) {
-                        sum += kernel[smallRow - rowStart][smallCol - colStart] * pixels[smallRow * width + smallCol];
-                        denom += kernel[smallRow - rowStart][smallCol - colStart];
-                    }
-                }
+
+__global__ void kernel_blur(float* pixels, float* output, int width, int height, int N) {
+
+    const float kernel[kernel_width][kernel_width] = {
+        {0.00000067, 0.00002292, 0.00019117, 0.00038771, 0.00019117, 0.00002292, 0.00000067},
+        {0.00002292, 0.00078633, 0.00655965, 0.01330373, 0.00655965, 0.00078633, 0.00002292},
+        {0.00019117, 0.00655965, 0.05472157, 0.11098164, 0.05472157, 0.00655965, 0.00019117},
+        {0.00038771, 0.01330373, 0.11098164, 0.22508352, 0.11098164, 0.01330373, 0.00038771},
+        {0.00019117, 0.00655965, 0.05472157, 0.11098164, 0.05472157, 0.00655965, 0.00019117},
+        {0.00002292, 0.00078633, 0.00655965, 0.01330373, 0.00655965, 0.00078633, 0.00002292},
+        {0.00000067, 0.00002292, 0.00019117, 0.00038771, 0.00019117, 0.00002292, 0.00000067}
+    };
+
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index >= N) return;
+    int row = index / width;
+    int col = index % width;
+    float sum = 0;
+    float denom = 0;
+    int rowStart = row - kernel_width/2;
+    int rowEnd = row + kernel_width/2 + 1;
+    int colStart = col - kernel_width/2;
+    int colEnd = col + kernel_width/2 + 1;
+    for (int smallRow = rowStart; smallRow < rowEnd; smallRow ++) {
+        for (int smallCol = colStart; smallCol < colEnd; smallCol ++) {
+            if (smallRow >= 0 && smallRow < height && smallCol >= 0 && smallCol < width) {
+                sum += kernel[smallRow - rowStart][smallCol - colStart] * pixels[smallRow * width + smallCol];
+                denom += kernel[smallRow - rowStart][smallCol - colStart];
             }
-            output[row * width + col] = sum/denom;
-
         }
     }
+    output[row * width + col] = sum/denom;
+}
+
+void blur(float* pixels, float* output, int width, int height) {
+    const int N = height * width;
+    const int threadsPerBlock = 512;
+    const int blocks = (N + threadsPerBlock - 1) / threadsPerBlock;
+    kernel_blur<<<blocks, threadsPerBlock>>>(pixels, output, width, height, N);
 }
 
 void calculateGradient(float* pixelsAfterBlur, float* gradientMag, int* gradientAng, int width, int height, float* maxMag) {
