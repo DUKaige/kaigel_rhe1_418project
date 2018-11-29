@@ -8,6 +8,25 @@ using namespace std;
 
 #define kernel_width 7
 
+float stoff(const char* s){
+  float rez = 0, fact = 1;
+  if (*s == '-'){
+    s++;
+    fact = -1;
+  };
+  for (int point_seen = 0; *s; s++){
+    if (*s == '.'){
+      point_seen = 1; 
+      continue;
+    };
+    int d = *s - '0';
+    if (d >= 0 && d <= 9){
+      if (point_seen) fact /= 10.0f;
+      rez = rez * 10.0f + (float)d;
+    };
+  };
+  return rez * fact;
+}
 
 __global__ void kernel_blur(float* pixels, float* output, int width, int height, int N) {
 
@@ -191,7 +210,7 @@ float* split(string str, char delimiter, int numElts) {
     int i = 0; 
 
     while(getline(ss, tok, delimiter)) {
-        elts[i++] = stof(tok, nullptr);
+        elts[i++] = stoff(tok.c_str());
     }
  
     return elts;
@@ -216,9 +235,9 @@ int main(int argc, char** argv) {
     if (myfile.is_open()) {
 
         getline(myfile, line);
-        height = static_cast<int>(stof(line, nullptr));
+        height = stoff(line.c_str());
         getline(myfile, line);
-        width = static_cast<int>(stof(line, nullptr));
+        width = stoff(line.c_str());
 
         pixels = (float*) malloc(sizeof(float) * height * width);
         int idx = 0;
