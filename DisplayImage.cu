@@ -207,11 +207,10 @@ void doubleThreshold(float* pixelsAfterThin, int* pixelsStrongEdges, int* pixels
     cudaFree(cudaWeakEdges);
 }
 
-
-void dfs(int row, int col, int* pixelsStrongEdges, int* pixelsWeakEdges, int* visited, int width, int height) {
-    if (row < 0 || row >= height || col < 0 || col >= width)
-        return;
+__device__ __inline__ void dfsRange(int row, int col, int lorow, int hirow, int locol, int hicol, int* pixelsStrongEdges, int* pixelsWeakEdges, int* visited, int width, int height) {
     int idx = row * width + col;
+    if (row < lorow || row >= hirow || col < locol || col >= hicol)
+        return;
     if (visited[idx] == 1){
         return;
     }
@@ -223,46 +222,67 @@ void dfs(int row, int col, int* pixelsStrongEdges, int* pixelsWeakEdges, int* vi
     }
 
     visited[idx] = 1;
-    if (row > 0) {
-        dfs(row - 1, col, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
-        if (col > 0) {
-            dfs(row - 1, col - 1, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
+    if (row > lorow) {
+        dfsRange(row - 1, col, lorow, hirow, locol, hicol, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
+        if (col > locol) {
+            dfsRange(row - 1, col - 1, lorow, hirow, locol, hicol, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
         }
 
-        if (col < width - 1) {
-            dfs(row - 1, col + 1, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
-        }
-    }
-
-    if (row < height - 1) {
-        dfs(row + 1, col, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
-        if (col > 0) {
-            dfs(row + 1, col - 1, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
-        }
-        if (col < width - 1) {
-            dfs(row + 1, col + 1, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
+        if (col < hicol - 1) {
+            dfsRange(row - 1, col + 1, lorow, hirow, locol, hicol, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
         }
     }
 
-    if (col > 0) {
-        dfs(row, col - 1, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
+    if (row < hirow - 1) {
+        dfsRange(row + 1, col, lorow, hirow, locol, hicol, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
+        if (col > locol) {
+            dfsRange(row + 1, col - 1, lorow, hirow, locol, hicol, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
+        }
+        if (col < hicol - 1) {
+            dfsRange(row + 1, col + 1, lorow, hirow, locol, hicol, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
+        }
     }
 
-    if (col < width - 1) {
-        dfs(row, col + 1, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
+    if (col > locol) {
+        dfsRange(row, col - 1, lorow, hirow, locol, hicol, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
+    }
+
+    if (col < hicol - 1) {
+        dfsRange(row, col + 1, lorow, hirow, locol, hicol, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
+    }
+}
+
+__global__ void kernel_dfs(int numDiv, int* pixelsStrongEdges, int* pixelsWeakEdges, int* visited, int width, int height) {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index >= numDiv * numDiv) return;
+    int colIndex = index % numDiv;
+    int rowIndex = index / numDiv;
+    int colStart = colIndex * width / numDiv;
+    int colEnd = (colIndex + 1) * width / numDiv;
+    int rowStart = rowIndex * width / numDiv;
+    int rowEnd = (rowIndex + 1) * width / numDiv;
+
+
+    for (int row = rowStart; row < rowEnd; row ++) {
+        for (int col = colStart; col < colEnd; col ++) {
+            if (pixelsStrongEdges[row * width + col] == 1)
+                dfsRange(row, col, 0, height, 0, width, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
+
+        }
     }
 }
 
 void edgeTrack(int* pixelsStrongEdges, int* pixelsWeakEdges, int width, int height) {
     int* visited = (int*) calloc(sizeof(int), width * height);
-    int idx = 0;
-    for (int row = 0; row < height; row ++) {
-        for (int col = 0; col < width; col ++) {
-            if (pixelsStrongEdges[idx] == 1)
-                dfs(row, col, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
-            idx++;
+    int numDiv = 256;
+    int* changed = (int*) calloc(sizeof(int), numDiv * numDiv);
+    for (int blockHor = 0; blockHor < numDiv; blockHor ++) {
+        for (int blockVer = 0; blockVer < numDiv; blockVer ++) {
+            int blocks = (numDiv * numDiv + threadsPerBlock - 1) / threadsPerBlock;
+            kernel_dfs<<<blocks, threadsPerBlock>>>(numDiv, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
         }
     }
+
 }
 
 float* split(string str, char delimiter, int numElts) {
