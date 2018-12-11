@@ -7,6 +7,8 @@
 using namespace std;
 
 #define kernel_width 7
+#define threadsPerBlock 512
+
 
 float stoff(const char* s){
   float rez = 0, fact = 1;
@@ -29,7 +31,6 @@ float stoff(const char* s){
 }
 
 __global__ void kernel_blur(float* pixels, float* output, int width, int height, int N) {
-
     const float kernel[kernel_width][kernel_width] = {
         {0.00000067, 0.00002292, 0.00019117, 0.00038771, 0.00019117, 0.00002292, 0.00000067},
         {0.00002292, 0.00078633, 0.00655965, 0.01330373, 0.00655965, 0.00078633, 0.00002292},
@@ -41,110 +42,171 @@ __global__ void kernel_blur(float* pixels, float* output, int width, int height,
     };
 
     int index = blockIdx.x * blockDim.x + threadIdx.x;
-    if (index >= N) return;
-    int row = index / width;
-    int col = index % width;
-    float sum = 0;
-    float denom = 0;
-    int rowStart = row - kernel_width/2;
-    int rowEnd = row + kernel_width/2 + 1;
-    int colStart = col - kernel_width/2;
-    int colEnd = col + kernel_width/2 + 1;
-    for (int smallRow = rowStart; smallRow < rowEnd; smallRow ++) {
-        for (int smallCol = colStart; smallCol < colEnd; smallCol ++) {
-            if (smallRow >= 0 && smallRow < height && smallCol >= 0 && smallCol < width) {
-                sum += kernel[smallRow - rowStart][smallCol - colStart] * pixels[smallRow * width + smallCol];
-                denom += kernel[smallRow - rowStart][smallCol - colStart];
+    if (index < N) {
+        int row = index / width;
+        int col = index % width;
+        float sum = 0;
+        float denom = 0;
+        int rowStart = row - kernel_width/2;
+        int rowEnd = row + kernel_width/2 + 1;
+        int colStart = col - kernel_width/2;
+        int colEnd = col + kernel_width/2 + 1;
+        for (int smallRow = rowStart; smallRow < rowEnd; smallRow ++) {
+            for (int smallCol = colStart; smallCol < colEnd; smallCol ++) {
+                if (smallRow >= 0 && smallRow < height && smallCol >= 0 && smallCol < width) {
+                    sum += kernel[smallRow - rowStart][smallCol - colStart] * pixels[smallRow * width + smallCol];
+                    denom += kernel[smallRow - rowStart][smallCol - colStart];
+                }
             }
         }
-    }
-    output[row * width + col] = sum/denom;
+        output[index] = sum/denom;
+    }   
 }
 
-void blur(float* pixels, float* output, int width, int height) {
-    const int N = height * width;
-    const int threadsPerBlock = 512;
-    const int blocks = (N + threadsPerBlock - 1) / threadsPerBlock;
-    kernel_blur<<<blocks, threadsPerBlock>>>(pixels, output, width, height, N);
-}
-
-void calculateGradient(float* pixelsAfterBlur, float* gradientMag, int* gradientAng, int width, int height, float* maxMag) {
-    int idx = 0;
-    for (int row = 0; row < height; row ++) {
-        for (int col = 0; col < width; col ++) {
-            float gy = (float) row == height - 1? 0 : pixelsAfterBlur[idx + width] - pixelsAfterBlur[idx];
-            float gx = (float) col == width - 1? 0 : pixelsAfterBlur[idx + 1] - pixelsAfterBlur[idx];
-            gradientMag[idx] = sqrt(gx * gx + gy * gy);
-            if (gradientMag[idx] > *maxMag)
-                *maxMag = gradientMag[idx];
-            float ang;
-            if (gx < 0.000001 && gx > -0.000001) ang = 90;
-            else ang = atan(gy / gx) / 3.1415926 * 180.0;
-            if (ang < 0)
-                ang += 180;
-
-            //printf("(gy / gx: %f  ang: %f \n", gy / gx, ang);
-            gradientAng[idx] = ((int) (ang + 22.5) / 45) * 45;
-            idx++; 
-        }
+__global__ void kernel_calculateGradient(float* pixelsAfterBlur, float* gradientMag, int* gradientAng, int width, int height, int N) {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index < N) {
+        int row = index / width;
+        int col = index % width;
+        float gy = (float) row == height - 1? 0 : pixelsAfterBlur[index + width] - pixelsAfterBlur[index];
+        float gx = (float) col == width - 1? 0 : pixelsAfterBlur[index + 1] - pixelsAfterBlur[index];
+        gradientMag[index] = sqrt(gx * gx + gy * gy);
+        float ang;
+        if (gx < 0.000001 && gx > -0.000001) ang = 90;
+        else ang = atan(gy / gx) / 3.1415926 * 180.0;
+        if (ang < 0)
+            ang += 180;
+        gradientAng[index] = ((int) (ang + 22.5) / 45) * 45;
     }
 }
 
-void thin(float* gradientMag, int* gradientAng, float* pixelsAfterThin, int width, int height) {
-    for (int row = 0; row < height; row ++) {
-        for (int col = 0; col < width; col ++) {
-            float mag = gradientMag[row * width + col];
-            float magL = 0;
-            float magR = 0;
-            int ang = gradientAng[row * width + col];
-            if (ang == 0 || ang == 180) {
-                if (row > 0) magL = gradientMag[row * width + col - 1];
-
-                if (row < height - 1) magR = gradientMag[row * width + col + 1];
-            } 
-
-            else if (ang == 45 || ang == 225) {
-                if (row > 0 && col < width - 1) magL = gradientMag[(row + 1) * width + col + 1];
-
-                if (row < height - 1 && col > 0) magR = gradientMag[(row - 1) * width + col - 1];
-            } 
-
-            else if (ang == 90 || ang == 270) {
-                if (col > 0) magL = gradientMag[(row - 1) * width + col];
-
-                if (col < width - 1) magR = gradientMag[(row + 1) * width + col];
-            } 
-
-            else if (ang == 135 || ang == 315) {
-                if (row > 0 && col > 0) magL = gradientMag[(row + 1) * width + col - 1];
-
-                if (row < height - 1 && col < width - 1) magR = gradientMag[(row - 1) * width + col + 1];
-            }
-            if (mag > magL && mag > magR) {
-                pixelsAfterThin[row * width + col] = mag;
-            } else{
-                pixelsAfterThin[row * width + col] = 0;
-            }
+__global__ void kernel_doubleThreshold(float* pixelsAfterThin, int* pixelsStrongEdges, int* pixelsWeakEdges, int width, int height, float low_threshold, float high_threshold, int N) {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index < N) {
+        float val = pixelsAfterThin[index];
+        if (val >= high_threshold){
+            pixelsStrongEdges[index] = 1;
+        }
+        if (val < high_threshold && val >= low_threshold){
+            pixelsWeakEdges[index] = 1;
         }
     }
 }
 
+__global__ void kernel_thin(float* pixelsAfterThin, int* gradientAng, float* gradientMag, int width, int height, int N) {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index < N) {
+        int row = index / width;
+        int col = index % width;
+        float mag = gradientMag[row * width + col];
+        float magL = 0;
+        float magR = 0;
+        int ang = gradientAng[row * width + col];
+        if (ang == 0 || ang == 180) {
+            if (row > 0) magL = gradientMag[row * width + col - 1];
+            if (row < height - 1) magR = gradientMag[row * width + col + 1];
+        } 
 
-void doubleThreshold(float* pixelsAfterThin, int* pixelsStrongEdges, int* pixelsWeakEdges, int width, int height, float low_threshold, float high_threshold) {
-    int idx = 0;
-    for (int row = 0; row < height; row ++) {
-        for (int col = 0; col < width; col ++) {
-            float val = pixelsAfterThin[idx];
-            if (val >= high_threshold){
-                pixelsStrongEdges[idx] = 1;
-            }
-            if (val < high_threshold && val >= low_threshold){
-                pixelsWeakEdges[idx] = 1;
-            }
-            idx++;
+        else if (ang == 45 || ang == 225) {
+            if (row > 0 && col < width - 1) magL = gradientMag[(row + 1) * width + col + 1];
+
+            if (row < height - 1 && col > 0) magR = gradientMag[(row - 1) * width + col - 1];
+        } 
+
+        else if (ang == 90 || ang == 270) {
+            if (col > 0) magL = gradientMag[(row - 1) * width + col];
+
+            if (col < width - 1) magR = gradientMag[(row + 1) * width + col];
+        } 
+
+        else if (ang == 135 || ang == 315) {
+            if (row > 0 && col > 0) magL = gradientMag[(row + 1) * width + col - 1];
+
+            if (row < height - 1 && col < width - 1) magR = gradientMag[(row - 1) * width + col + 1];
+        }
+        if (mag > magL && mag > magR) {
+            pixelsAfterThin[row * width + col] = mag;
+        } 
+        else {
+            pixelsAfterThin[row * width + col] = 0;
         }
     }
 }
+
+
+void blur(float* pixels, float* output, int width, int height, int N, int blocks) {
+    float* cudaPixels;
+    float* cudaOutput;
+    cudaMalloc(&cudaPixels, N * sizeof(float));
+    cudaMalloc(&cudaOutput, N * sizeof(float));
+    cudaMemcpy(cudaPixels, pixels, N * sizeof(float), cudaMemcpyHostToDevice);
+    kernel_blur<<<blocks, threadsPerBlock>>>(cudaPixels, cudaOutput, width, height, N);
+    cudaThreadSynchronize();
+    cudaMemcpy(output, cudaOutput, N * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaFree(cudaPixels);
+    cudaFree(cudaOutput);
+}
+
+void calculateGradient(float* pixelsAfterBlur, float* gradientMag, int* gradientAng, int width, int height, float* maxMag, int N, int blocks) {
+    float* cudaPixels;
+    float* cudaGradientMag;
+    int* cudaGradientAng;
+    cudaMalloc(&cudaPixels, N * sizeof(float));
+    cudaMalloc(&cudaGradientAng, N * sizeof(int));
+    cudaMalloc(&cudaGradientMag, N * sizeof(float));
+    cudaMemcpy(cudaPixels, pixelsAfterBlur, N * sizeof(float), cudaMemcpyHostToDevice);
+    kernel_calculateGradient<<<blocks, threadsPerBlock>>>(cudaPixels, cudaGradientMag, cudaGradientAng, width, height, N);
+    cudaThreadSynchronize();
+    cudaMemcpy(gradientMag, cudaGradientMag, N * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(gradientAng, cudaGradientAng, N * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaFree(cudaPixels);
+    cudaFree(cudaGradientAng);
+    cudaFree(cudaGradientMag);
+
+    float max = 0;
+    for (int i = 0; i < N; i++) {
+        if (gradientMag[i] > max) {
+            max = gradientMag[i];
+        }
+    }
+    *maxMag = max;
+}
+
+void thin(float* gradientMag, int* gradientAng, float* pixelsAfterThin, int width, int height, int N, int blocks) {
+    float* cudaPixels;
+    float* cudaGradientMag;
+    int* cudaGradientAng;
+    cudaMalloc(&cudaPixels, N * sizeof(float));
+    cudaMalloc(&cudaGradientAng, N * sizeof(int));
+    cudaMalloc(&cudaGradientMag, N * sizeof(float));
+    cudaMemcpy(cudaPixels, pixelsAfterThin, N * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(cudaGradientAng, gradientAng, N * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(cudaGradientMag, gradientMag, N * sizeof(float), cudaMemcpyHostToDevice);
+    kernel_thin<<<blocks, threadsPerBlock>>>(cudaPixels, cudaGradientAng, cudaGradientMag, width, height, N);
+    cudaThreadSynchronize();
+    cudaMemcpy(pixelsAfterThin, cudaPixels, N * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaFree(cudaPixels);
+    cudaFree(cudaGradientMag);
+    cudaFree(cudaGradientAng);
+}
+
+void doubleThreshold(float* pixelsAfterThin, int* pixelsStrongEdges, int* pixelsWeakEdges, int width, int height, float low_threshold, float high_threshold, int N, int blocks) {
+    float* cudaPixels;
+    int* cudaStrongEdges;
+    int* cudaWeakEdges;
+    cudaMalloc(&cudaPixels, N * sizeof(float));
+    cudaMalloc(&cudaStrongEdges, N * sizeof(int));
+    cudaMalloc(&cudaWeakEdges, N * sizeof(int));
+    cudaMemcpy(cudaPixels, pixelsAfterThin, N * sizeof(float), cudaMemcpyHostToDevice);
+    kernel_doubleThreshold<<<blocks, threadsPerBlock>>>(cudaPixels, cudaStrongEdges, cudaWeakEdges, width, height, low_threshold, high_threshold, N);
+    cudaThreadSynchronize();
+    cudaMemcpy(pixelsStrongEdges, cudaStrongEdges, N * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(pixelsWeakEdges, cudaWeakEdges, N * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaFree(cudaPixels);
+    cudaFree(cudaStrongEdges);
+    cudaFree(cudaWeakEdges);
+}
+
 
 void dfs(int row, int col, int* pixelsStrongEdges, int* pixelsWeakEdges, int* visited, int width, int height) {
     if (row < 0 || row >= height || col < 0 || col >= width)
@@ -216,7 +278,6 @@ float* split(string str, char delimiter, int numElts) {
     return elts;
 }
 
-
 int main(int argc, char** argv) {  
 
     if (argc != 2) {
@@ -224,8 +285,8 @@ int main(int argc, char** argv) {
             return -1;
     }
 
-    float low_threshold = 0.1;
-    float high_threshold = 0.15;
+    float low_threshold = 0.05;
+    float high_threshold = 0.1;
     float* pixels;
     int height;
     int width;
@@ -254,25 +315,27 @@ int main(int argc, char** argv) {
         return -1;
     }
 
+    int N = height * width;
+    int blocks = (N + threadsPerBlock - 1) / threadsPerBlock;
 
-    /* 1. blur */
+    // /* 1. blur */
     float* pixelsAfterBlur = (float*) malloc(sizeof(float)*height*width);
-    blur(pixels, pixelsAfterBlur, width, height);
+    blur(pixels, pixelsAfterBlur, width, height, N, blocks);
 
     /* 2. gradient */
     float* gradientMag = (float*) malloc(sizeof(float)*height*width);
     int* gradientAng = (int*) malloc(sizeof(int)*height*width);
     float maxMag = -1;
-    calculateGradient(pixelsAfterBlur, gradientMag, gradientAng, width, height, &maxMag);
+    calculateGradient(pixelsAfterBlur, gradientMag, gradientAng, width, height, &maxMag, N, blocks);
 
     /* 3. non-maximum suppresion */
     float* pixelsAfterThin = (float*) malloc(sizeof(float)*height*width);
-    thin(gradientMag, gradientAng, pixelsAfterThin, width, height);
+    thin(gradientMag, gradientAng, pixelsAfterThin, width, height, N, blocks);
 
     /* 4. double thresholding */
     int* pixelsStrongEdges = (int*) calloc(sizeof(int), height*width);
     int* pixelsWeakEdges = (int*) calloc(sizeof(int), height*width);
-    doubleThreshold(pixelsAfterThin, pixelsStrongEdges, pixelsWeakEdges, width, height, low_threshold * maxMag, high_threshold * maxMag);
+    doubleThreshold(pixelsAfterThin, pixelsStrongEdges, pixelsWeakEdges, width, height, low_threshold * maxMag, high_threshold * maxMag, N, blocks);
 
     /* 5. edge tracking */
     edgeTrack(pixelsStrongEdges, pixelsWeakEdges, width, height);
@@ -287,7 +350,7 @@ int main(int argc, char** argv) {
         int idx = 0;
         for (int i = 0; i < height; i++) {
             for (int j = 0; j < width; j++) {
-                outfile << pixelsStrongEdges[idx++] << " ";
+                outfile <<  pixelsStrongEdges[idx++] * 255 << " ";
             }
             outfile << "\n";
         }
