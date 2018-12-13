@@ -41,10 +41,6 @@ float* split(string str, char delimiter, int numElts) {
  
     return elts;
 }
-struct coordinate {
-	int x;
-	int y;
-};
 
 int acute(int prev_x, int prev_y, int current_x, int current_y, int next_x, int next_y) {
 	if (prev_x == -1) return 1;
@@ -61,19 +57,15 @@ int acute(int prev_x, int prev_y, int current_x, int current_y, int next_x, int 
 int dfs(int init_x, int init_y, int current_x, int current_y, 
 	int* visited, int* parents, float* pixels, int height, int width,int max_jump) {
 
-	vector<struct coordinate> stack;
-	struct coordinate init_coor;
-	init_coor.x = init_x;
-	init_coor.y = init_y;
-	stack.push_back(init_coor);
+	vector<int> stack;
+	stack.push_back(init_y * width + init_x);
 	int times_passed_init = 0;
 
 	while (!stack.empty()) {
-		struct coordinate cur = stack.back();
+		int cur_id = stack.back();
 		stack.pop_back();
-		int current_x = cur.x;
-		int current_y = cur.y;
-		printf("x: %d y: %d\n", current_x, current_y);
+		int current_x = cur_id % width;
+		int current_y = cur_id / width;
 		if (current_x == init_x && current_y == init_y && times_passed_init > 0) {
 			return 1;
 		}
@@ -89,10 +81,7 @@ int dfs(int init_x, int init_y, int current_x, int current_y,
 				if (pixels[id] != 0 && !visited[id]) {
 					flag = 1;
 					parents[id] = current_y * width + current_x;
-					struct coordinate next;
-					next.x = next_x;
-					next.y = next_y;
-					stack.push_back(next);
+					stack.push_back(next_y * width + next_x);
 				}
 			}
 		}
@@ -110,21 +99,73 @@ int dfs(int init_x, int init_y, int current_x, int current_y,
 				for (int next_y = max(current_y - max_jump, 0); next_y < min(current_y + max_jump + 1, height); next_y ++) {
 					int id = next_y * width + next_x;
 
-					if (acute(prev_x, prev_y, cur.x, cur.y, next_x, next_y) 
-						&& (next_x - current_x) *  (next_x - current_x) + (next_y - current_y) *  (next_y - current_y) >= 2
+					if (acute(prev_x, prev_y, current_x, current_y, next_x, next_y) 
+						&& (next_x - current_x) *  (next_x - current_x) + (next_y - current_y) *  (next_y - current_y) >= 4
 						&& pixels[id] != 0 
 						&& !visited[id]) {
 						parents[id] = current_y * width + current_x;
-						struct coordinate next;
-						next.x = next_x;
-						next.y = next_y;
-						stack.push_back(next);
+						stack.push_back(next_y * width + next_x);
 					}
 				}
 			}
 		}
 	}
 	return 0;
+}
+
+void connect(float* mat, int height, int width, int cur_x, 
+	int cur_y, int next_x, int next_y) {
+	int dx = abs(cur_x - next_x) + 1;
+	int dy = abs(cur_y - next_y) + 1;
+	int minx = min(cur_x, next_x);
+	int maxx = max(cur_x, next_x) + 1;
+	int miny = min(cur_y, next_y);
+	int maxy = max(cur_y, next_y) + 1;
+	
+	int cross = 1;
+	if ((minx == cur_x && miny == cur_y) || (minx == next_x && miny == next_y)) {
+		cross = 0;
+	}
+
+	if (dx < dy) {
+		for (int x = minx; x < maxx; x ++) {
+			int start;
+			int end;
+			if (cross == 0) {
+				start = dy * (x - minx) / dx + minx;
+				end = dy * (x + 1 - minx) / dx + minx;
+				for (int y = start; y < end; y ++) {
+					mat[y * width + x] = 1;
+				}
+			} else {
+				start = maxx - 1 - dy * (x - minx) / dx;
+				end = maxx - 1 - dy * (x + 1 - minx) / dx;
+				for (int y = start; y > end; y--) {
+					mat[y * width + x] = 1;
+				}
+			}
+			
+		}
+	} else {
+		for (int y = miny; y < maxy; y ++) {
+			int start;
+			int end;
+			if (cross == 0) {
+				start = dx * (y - miny) / dy + miny;
+				end = dx * (y + 1 - miny) / dy + miny;
+				for (int x = start; x < end; x ++) {
+					mat[y * width + x] = 1;
+				}
+			} else {
+				start = maxx - 1 - dx * (y - miny) / dy;
+				end = maxx - 1 - dx * (y + 1 - miny) / dy;
+				for (int x = start; x > end; x --) {
+					mat[y * width + x] = 1;
+				}
+			}
+
+		}
+	}
 }
 
 //Return 0 if no result
@@ -151,7 +192,6 @@ int explore_angle(int angle, float* pixels, float* mat, int height, int width,
 	free(visited);
 
 	if (result == 0) {
-		printf("non\n");
 		return 0;
 	} else {
 		int cur_x = init_x;
@@ -161,24 +201,56 @@ int explore_angle(int angle, float* pixels, float* mat, int height, int width,
 			times_passed_init = 1;
 			int id = cur_y * width + cur_x;
 			mat[id] = 1;
-			printf("path x: %d y: %d\n", cur_x, cur_y);
-			cur_x = parents[id] % width;
-			cur_y = parents[id] / width;
+			int next_x = parents[id] % width;
+			int next_y = parents[id] / width;
+
+			if ((next_x - cur_x)*(next_x - cur_x)+(next_y - cur_y)*(next_y - cur_y) >= 4) {
+				connect(mat, height, width, cur_x, cur_y, next_x, next_y);
+			}
+
+			cur_x = next_x;
+			cur_y = next_y;
 		}
 		return 1;
 	}
 }
 
+void fillMat(int starting_x, int starting_y, float* mat, int height, int width) {
+	vector<int> stack;
+	stack.push_back(starting_y * width + starting_x);
+	while (!stack.empty()) {
+		int cur_id = stack.back();
+		stack.pop_back();
+
+		// Paint
+		mat[cur_id] = 1;
+		int current_x = cur_id % width;
+		int current_y = cur_id / width;
+		if (current_x + 1 < width && mat[cur_id + 1] == 0) {
+			stack.push_back(cur_id + 1);
+		}	
+
+		if (current_x - 1 >= 0 && mat[cur_id - 1] == 0) {
+			stack.push_back(cur_id - 1);
+		}	
+
+		if (current_y + 1 < height && mat[cur_id + width] == 0) {
+			stack.push_back(cur_id + width);
+		}
+
+		if (current_x - 1 >= 0 && mat[cur_id - width] == 0) {
+			stack.push_back(cur_id - width);
+		}
+
+	}
+}
+
 int main(int argc, char** argv) {  
   if (argc != 4) {
-      printf("usage: r/l <Image_Path> x_coor y_coor\n");
+      printf("usage: e/r/l <Image_Path> x_coor y_coor\n");
           return -1;
   }
 
-  int remove = 1;
-  if (argv[0][0] == 'l') {
-  	remove = 0;
-  }
 
 	float* pixels;
 	int starting_x = atoi(argv[2]);
@@ -230,8 +302,32 @@ int main(int argc, char** argv) {
 	float* mat = (float*)calloc(sizeof(float), height * width);
   explore_angle(0, pixels, mat, height, width, 
 	starting_x, starting_y);
-
-
+  fillMat(starting_x, starting_y, mat, height, width);
+/*
+  if (argv[1][0] == 'r') {
+  	for (int y = 0; y < height; y++) {
+		  for (int x = 0; x < width; x ++) {
+		  	int id = y * width + x;
+		  	if (mat[id] == 0) {
+		  		mat[id] = pixels[id];
+		  	} else {
+		  		mat[id] = 0;
+		  	}
+		  }
+	  }
+  } else if(argv[1][0] == 'l') {
+  	fillMat(starting_x, starting_y, mat, height, width);
+  	for (int y = 0; y < height; y++) {
+		  for (int x = 0; x < width; x ++) {
+		  	int id = y * width + x;
+		  	if (mat[id] > 0) {
+		  		mat[id] = pixels[id];
+		  	} else {
+		  		mat[id] = 0;
+		  	}
+		  }
+	  }
+  }*/
   ofstream outfile ("seg_result.txt");
   if (outfile.is_open()) {
 
