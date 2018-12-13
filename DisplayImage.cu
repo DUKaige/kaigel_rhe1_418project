@@ -141,10 +141,10 @@ void blur(float* pixels, float* output, int width, int height, int N, int blocks
     cudaMalloc(&cudaOutput, N * sizeof(float));
     cudaMemcpy(cudaPixels, pixels, N * sizeof(float), cudaMemcpyHostToDevice);
     kernel_blur<<<blocks, threadsPerBlock>>>(cudaPixels, cudaOutput, width, height, N);
-    cudaThreadSynchronize();
+    cudaDeviceSynchronize();
     cudaMemcpy(output, cudaOutput, N * sizeof(float), cudaMemcpyDeviceToHost);
-    cudaFree(cudaPixels);
-    cudaFree(cudaOutput);
+    //cudaFree(cudaPixels);
+    //cudaFree(cudaOutput);
 }
 
 void calculateGradient(float* pixelsAfterBlur, float* gradientMag, int* gradientAng, int width, int height, float* maxMag, int N, int blocks) {
@@ -156,12 +156,10 @@ void calculateGradient(float* pixelsAfterBlur, float* gradientMag, int* gradient
     cudaMalloc(&cudaGradientMag, N * sizeof(float));
     cudaMemcpy(cudaPixels, pixelsAfterBlur, N * sizeof(float), cudaMemcpyHostToDevice);
     kernel_calculateGradient<<<blocks, threadsPerBlock>>>(cudaPixels, cudaGradientMag, cudaGradientAng, width, height, N);
-    cudaThreadSynchronize();
+    cudaDeviceSynchronize();
     cudaMemcpy(gradientMag, cudaGradientMag, N * sizeof(float), cudaMemcpyDeviceToHost);
     cudaMemcpy(gradientAng, cudaGradientAng, N * sizeof(int), cudaMemcpyDeviceToHost);
-    cudaFree(cudaPixels);
-    cudaFree(cudaGradientAng);
-    cudaFree(cudaGradientMag);
+
 
     float max = 0;
     for (int i = 0; i < N; i++) {
@@ -170,6 +168,9 @@ void calculateGradient(float* pixelsAfterBlur, float* gradientMag, int* gradient
         }
     }
     *maxMag = max;
+    cudaFree(cudaPixels);
+    cudaFree(cudaGradientAng);
+    cudaFree(cudaGradientMag);
 }
 
 void thin(float* gradientMag, int* gradientAng, float* pixelsAfterThin, int width, int height, int N, int blocks) {
@@ -183,7 +184,7 @@ void thin(float* gradientMag, int* gradientAng, float* pixelsAfterThin, int widt
     cudaMemcpy(cudaGradientAng, gradientAng, N * sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(cudaGradientMag, gradientMag, N * sizeof(float), cudaMemcpyHostToDevice);
     kernel_thin<<<blocks, threadsPerBlock>>>(cudaPixels, cudaGradientAng, cudaGradientMag, width, height, N);
-    cudaThreadSynchronize();
+    cudaDeviceSynchronize();
     cudaMemcpy(pixelsAfterThin, cudaPixels, N * sizeof(float), cudaMemcpyDeviceToHost);
     cudaFree(cudaPixels);
     cudaFree(cudaGradientMag);
@@ -199,7 +200,7 @@ void doubleThreshold(float* pixelsAfterThin, int* pixelsStrongEdges, int* pixels
     cudaMalloc(&cudaWeakEdges, N * sizeof(int));
     cudaMemcpy(cudaPixels, pixelsAfterThin, N * sizeof(float), cudaMemcpyHostToDevice);
     kernel_doubleThreshold<<<blocks, threadsPerBlock>>>(cudaPixels, cudaStrongEdges, cudaWeakEdges, width, height, low_threshold, high_threshold, N);
-    cudaThreadSynchronize();
+    cudaDeviceSynchronize();
     cudaMemcpy(pixelsStrongEdges, cudaStrongEdges, N * sizeof(int), cudaMemcpyDeviceToHost);
     cudaMemcpy(pixelsWeakEdges, cudaWeakEdges, N * sizeof(int), cudaMemcpyDeviceToHost);
     cudaFree(cudaPixels);
@@ -272,16 +273,58 @@ __global__ void kernel_dfs(int numDiv, int* pixelsStrongEdges, int* pixelsWeakEd
     }
 }
 
-void edgeTrack(int* pixelsStrongEdges, int* pixelsWeakEdges, int width, int height) {
-    int* visited = (int*) calloc(sizeof(int), width * height);
-    int numDiv = 256;
-    int* changed = (int*) calloc(sizeof(int), numDiv * numDiv);
-    for (int blockHor = 0; blockHor < numDiv; blockHor ++) {
-        for (int blockVer = 0; blockVer < numDiv; blockVer ++) {
-            int blocks = (numDiv * numDiv + threadsPerBlock - 1) / threadsPerBlock;
-            kernel_dfs<<<blocks, threadsPerBlock>>>(numDiv, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
+
+__global__ void kernel_exchange(int numDiv, int* pixelsStrongEdges, int* pixelsWeakEdges, int* visited, int width, int height) {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index >= numDiv * numDiv) return;
+    int colIndex = index % numDiv;
+    int rowIndex = index / numDiv;
+    int colStart = colIndex * width / numDiv;
+    int colEnd = (colIndex + 1) * width / numDiv;
+    int rowStart = rowIndex * width / numDiv;
+    int rowEnd = (rowIndex + 1) * width / numDiv;
+    // Left
+    if (colStart > 0) {
+        for (int row = rowStart; row < rowEnd; row ++) {
+            if (pixelsStrongEdges[row * width + colStart] == 1) {
+                pixelsStrongEdges[row * width + colStart - 1] = 1;
+            }
         }
     }
+
+    // Right
+    if (colEnd < width) {
+        for (int row = rowStart; row < rowEnd; row ++) {
+            if (pixelsStrongEdges[row * width + colEnd - 1] == 1) {
+                pixelsStrongEdges[row * width + colEnd] = 1;
+            }
+        }
+    }
+
+    // Top
+    if (rowStart > 0) {
+        for (int col = colStart; col < colEnd; col ++) {
+            if (pixelsStrongEdges[rowStart * width + col] == 1) {
+                pixelsStrongEdges[(rowStart - 1) * width + col] = 1;
+            }
+        }
+    }
+
+    // Bottom
+    if (rowEnd < height) {
+        for (int col = colStart; col < colEnd; col ++) {
+            if (pixelsStrongEdges[(rowEnd - 1) * width + col] == 1) {
+                pixelsStrongEdges[rowEnd * width + col] = 1;
+            }
+        }
+    }
+}
+
+void edgeTrack(int* pixelsStrongEdges, int* pixelsWeakEdges, int width, int height) {
+    int* visited = (int*) calloc(sizeof(int), width * height);
+    int numDiv = min(min(256, height/16), width/16);
+    int blocks = (numDiv * numDiv + threadsPerBlock - 1) / threadsPerBlock;
+    kernel_dfs<<<blocks, threadsPerBlock>>>(numDiv, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
 
 }
 
