@@ -48,7 +48,7 @@ int main(int argc, char** argv) {
 		        file << "\n";
 		    }
 		    file.close();
-	  } else {
+	  } else if (mode == 'i'){
 	  		string line;
 				ifstream file(txt);
 	  		getline(file, line);
@@ -82,6 +82,80 @@ int main(int argc, char** argv) {
 
 		    try {
         		imwrite(img, mat, compression_params);
+		    }
+		    catch (runtime_error& ex) {
+		        fprintf(stderr, "Exception converting image to JPG format: %s\n", ex.what());
+		        return 1;
+		    }
+	  } else if (mode == 'r' || mode == 'l') {
+	  		Mat image;
+		    image = imread(img, 1);
+		    if (!image.data) {
+		        printf("No image data \n");
+		        return -1;
+		    }
+		    int width = image.cols;
+		    int height = image.rows;
+
+
+		    string line;
+				ifstream file(txt);
+	  		getline(file, line);
+	  		cout << "l1" << line << endl;
+	  		int height2 = stoi(line);
+	  		if (height != height2) {
+	  			printf("height does not match.\n");
+	  			return 1;
+	  		}
+	  		getline(file, line);
+	  		cout << "l2" << line << endl;
+
+	  		int width2 = stoi(line);
+				if (width != width2) {
+	  			printf("width does not match.\n");
+	  			return 1;
+	  		}
+				Mat mat(height, width, CV_8UC4);
+
+	  		for (int row = 0; row < height; row ++) {
+	  				getline(file, line);
+		  			float* splitted = split(line, ' ', width);
+		  			for (int col = 0; col < width; col ++) {
+			  				Vec4b& rgba = mat.at<Vec4b>(row, col);
+		            int region = splitted[col];
+								Vec3b& intensity = image.at<Vec3b>(row, col);
+			          float r = intensity.val[0];
+			          float g = intensity.val[1];
+			          float b = intensity.val[2];
+								if (region > 0) {
+									if (mode == 'r') {
+										r = 0;
+										g = 0;
+										b = 0;
+									}
+								} else {
+									if (mode == 'l') {
+										r = 0;
+										g = 0;
+										b = 0;
+									}
+								}
+
+		            rgba[0] = r;
+		            rgba[1] = g;
+		            rgba[2] = b;
+		            rgba[3] = 255;
+		  			}
+		  			free(splitted);
+	  		}
+
+	  		vector<int> compression_params;
+		    compression_params.push_back(CV_IMWRITE_JPEG_QUALITY);
+		    compression_params.push_back(95);
+
+		    try {
+		    		string name = "mask_result.jpeg";
+        		imwrite(name, mat, compression_params);
 		    }
 		    catch (runtime_error& ex) {
 		        fprintf(stderr, "Exception converting image to JPG format: %s\n", ex.what());
