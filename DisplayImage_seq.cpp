@@ -6,6 +6,7 @@
 #include <string>
 #include <sstream>
 #include <omp.h>
+
 using namespace std;
 
 #define kernel_width 7
@@ -190,7 +191,7 @@ float* split(string str, char delimiter, int numElts) {
     int i = 0; 
 
     while(getline(ss, tok, delimiter)) {
-        elts[i++] = stof(tok, nullptr);
+        elts[i++] = stof(tok, NULL);
     }
  
     return elts;
@@ -215,15 +216,17 @@ int main(int argc, char** argv) {
     if (myfile.is_open()) {
 
         getline(myfile, line);
-        height = static_cast<int>(stof(line, nullptr));
+        height = static_cast<int>(stof(line, NULL));
         getline(myfile, line);
-        width = static_cast<int>(stof(line, nullptr));
+        width = static_cast<int>(stof(line, NULL));
 
         pixels = (float*) malloc(sizeof(float) * height * width);
         int idx = 0;
         while (getline(myfile, line)) {
             float* content = split(line, ' ', width);
-            memcpy(pixels+idx, content, sizeof(float) * width);
+            for (int i = 0; i < width; i ++) {
+                pixels[idx + i] = *content;
+            }
             idx += width;
             free(content);
         }
