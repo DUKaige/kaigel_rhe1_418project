@@ -8,7 +8,7 @@ using namespace std;
 
 #define kernel_width 7
 #define threadsPerBlock 512
-
+#define NUM_ITER_DFS 3
 
 float stoff(const char* s){
   float rez = 0, fact = 1;
@@ -209,48 +209,80 @@ void doubleThreshold(float* pixelsAfterThin, int* pixelsStrongEdges, int* pixels
 }
 
 __device__ __inline__ void dfsRange(int row, int col, int lorow, int hirow, int locol, int hicol, int* pixelsStrongEdges, int* pixelsWeakEdges, int* visited, int width, int height) {
+    vector<int> stack;
     int idx = row * width + col;
-    if (row < lorow || row >= hirow || col < locol || col >= hicol)
-        return;
-    if (visited[idx] == 1){
-        return;
-    }
-    if (pixelsWeakEdges[idx]) {
-        pixelsStrongEdges[idx] = 1;
-    }
-    else if (!pixelsStrongEdges[idx]) {
-        return;
-    }
-
-    visited[idx] = 1;
-    if (row > lorow) {
-        dfsRange(row - 1, col, lorow, hirow, locol, hicol, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
-        if (col > locol) {
-            dfsRange(row - 1, col - 1, lorow, hirow, locol, hicol, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
+    stack.push_back(idx);
+    while (!stack.empty()) {
+        idx = stack.back();
+        stack.pop_back();
+        if (pixelsWeakEdges[idx]) {
+            pixelsStrongEdges[idx] = 1;
         }
+        int id;
+        if (pixelsStrongEdges[idx]) {
+            if (row > lorow) {
+                id = (row - 1) * width + col;
+                if (!visited[id]) {
+                    stack.push_back(id);
+                    visited[id] = 1;
+                }
+                if (col > locol) {
+                    id = (row - 1) * width + col - 1;
+                    if (!visited[id]){
+                        stack.push_back(id);
+                        visited[id] = 1;
+                    } 
+                }
 
-        if (col < hicol - 1) {
-            dfsRange(row - 1, col + 1, lorow, hirow, locol, hicol, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
+                if (col < hicol - 1) {
+                    id = (row - 1) * width + col + 1;
+                    if (!visited[id]) {
+                        stack.push_back(id);
+                        visited[id] = 1;
+                    } 
+                }
+            }
+
+            if (row < hirow - 1) {
+                id = (row + 1) * width + col;
+                if (!visited[id]) {
+                    stack.push_back(id);
+                    visited[id] = 1;
+                }
+                if (col > locol) {
+                    id = (row + 1) * width + col - 1;
+                    if (!visited[id]){
+                        stack.push_back(id);
+                        visited[id] = 1;
+                    } 
+                }
+
+                if (col < hicol - 1) {
+                    id = (row + 1) * width + col + 1;
+                    if (!visited[id]) {
+                        stack.push_back(id);
+                        visited[id] = 1;
+                    }
+                }
+            }
+
+            if (col > locol) {
+                id = row * width + col - 1;
+                if (!visited[id]) {
+                    stack.push_back(id);
+                    visited[id] = 1;
+                }            
+            }
+
+            if (col < hicol - 1) {
+                id = row * width + col + 1;
+                if (!visited[id]) {
+                    stack.push_back(id);
+                    visited[id] = 1;
+                }               
+            }
         }
-    }
-
-    if (row < hirow - 1) {
-        dfsRange(row + 1, col, lorow, hirow, locol, hicol, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
-        if (col > locol) {
-            dfsRange(row + 1, col - 1, lorow, hirow, locol, hicol, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
-        }
-        if (col < hicol - 1) {
-            dfsRange(row + 1, col + 1, lorow, hirow, locol, hicol, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
-        }
-    }
-
-    if (col > locol) {
-        dfsRange(row, col - 1, lorow, hirow, locol, hicol, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
-    }
-
-    if (col < hicol - 1) {
-        dfsRange(row, col + 1, lorow, hirow, locol, hicol, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
-    }
+    }    
 }
 
 __global__ void kernel_dfs(int numDiv, int* pixelsStrongEdges, int* pixelsWeakEdges, int* visited, int width, int height) {
@@ -324,7 +356,10 @@ void edgeTrack(int* pixelsStrongEdges, int* pixelsWeakEdges, int width, int heig
     int* visited = (int*) calloc(sizeof(int), width * height);
     int numDiv = min(min(256, height/16), width/16);
     int blocks = (numDiv * numDiv + threadsPerBlock - 1) / threadsPerBlock;
-    kernel_dfs<<<blocks, threadsPerBlock>>>(numDiv, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
+    for (int i = 0; i < NUM_ITER_DFS; i ++) {
+        kernel_exchange(numDiv, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
+        kernel_dfs<<<blocks, threadsPerBlock>>>(numDiv, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
+    }
 
 }
 

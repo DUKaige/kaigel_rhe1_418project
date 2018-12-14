@@ -12,6 +12,7 @@
 using namespace std;
 
 #define kernel_width 7
+#define NUMOFTHREADS 16
 const float kernel[kernel_width][kernel_width] = {
     {0.00000067, 0.00002292, 0.00019117, 0.00038771, 0.00019117, 0.00002292, 0.00000067},
     {0.00002292, 0.00078633, 0.00655965, 0.01330373, 0.00655965, 0.00078633, 0.00002292},
@@ -27,6 +28,7 @@ void blur(float* pixels, float* output, int width, int height) {
     // int topBound = kernel_width/2;
     // int rightBound = width - kernel_width/2;
     // int botBound = height - kernel_width/2;
+    #pragma omp parallel for schedule(static) num_threads(NUMOFTHREADS)
     for (int row = 0; row < height; row ++) {
         for (int col = 0; col < width; col ++) {
             //int border = 0;
@@ -53,6 +55,7 @@ void blur(float* pixels, float* output, int width, int height) {
 
 void calculateGradient(float* pixelsAfterBlur, float* gradientMag, int* gradientAng, int width, int height, float* maxMag) {
     int idx = 0;
+    #pragma omp parallel for schedule(static) num_threads(NUMOFTHREADS)
     for (int row = 0; row < height; row ++) {
         for (int col = 0; col < width; col ++) {
             float gy = (float) row == height - 1? 0 : pixelsAfterBlur[idx + width] - pixelsAfterBlur[idx];
@@ -74,6 +77,7 @@ void calculateGradient(float* pixelsAfterBlur, float* gradientMag, int* gradient
 }
 
 void thin(float* gradientMag, int* gradientAng, float* pixelsAfterThin, int width, int height) {
+    #pragma omp parallel for schedule(static) num_threads(NUMOFTHREADS)
     for (int row = 0; row < height; row ++) {
         for (int col = 0; col < width; col ++) {
             float mag = gradientMag[row * width + col];
@@ -115,6 +119,7 @@ void thin(float* gradientMag, int* gradientAng, float* pixelsAfterThin, int widt
 
 void doubleThreshold(float* pixelsAfterThin, int* pixelsStrongEdges, int* pixelsWeakEdges, int width, int height, float low_threshold, float high_threshold) {
     int idx = 0;
+    #pragma omp parallel for schedule(static) num_threads(NUMOFTHREADS)
     for (int row = 0; row < height; row ++) {
         for (int col = 0; col < width; col ++) {
             float val = pixelsAfterThin[idx];
@@ -273,9 +278,11 @@ void edgeTrack(int* pixelsStrongEdges, int* pixelsWeakEdges, int width, int heig
     int* visited = (int*) calloc(sizeof(int), width * height);
     int numDiv = 1;
     for (int i = 0; i < 3; i += 1) {
+        #pragma omp parallel for schedule(static) num_threads(NUMOFTHREADS)
         for (int index = 0; index < numDiv*numDiv; index ++) {
             kernel_exchange(index, numDiv, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
         }
+        #pragma omp parallel for schedule(dynamic) num_threads(NUMOFTHREADS)
         for (int index = 0; index < numDiv*numDiv; index ++) {
             kernel_dfs(index, numDiv, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
         }
@@ -335,9 +342,8 @@ int main(int argc, char** argv) {
         return -1;
     }
     printf("1\n");
+
     auto start = std::chrono::high_resolution_clock::now();
-
-
     /* 1. blur */
     float* pixelsAfterBlur = (float*) malloc(sizeof(float)*height*width);
     blur(pixels, pixelsAfterBlur, width, height);
@@ -363,11 +369,9 @@ int main(int argc, char** argv) {
     /* 5. edge tracking */
     edgeTrack(pixelsStrongEdges, pixelsWeakEdges, width, height);
     printf("6\n");
-
     auto finish = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(finish - start);
     std::cout << "Total: " << elapsed.count() << " seconds.";
-
     /* 6. display */
     ofstream outfile ("result.txt");
     if (outfile.is_open()) {
@@ -386,3 +390,4 @@ int main(int argc, char** argv) {
 
     return 0;
 }
+    
