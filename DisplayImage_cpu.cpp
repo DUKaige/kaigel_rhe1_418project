@@ -22,13 +22,12 @@ const float kernel[kernel_width][kernel_width] = {
     {0.00002292, 0.00078633, 0.00655965, 0.01330373, 0.00655965, 0.00078633, 0.00002292},
     {0.00000067, 0.00002292, 0.00019117, 0.00038771, 0.00019117, 0.00002292, 0.00000067}
 };
-
 void blur(float* pixels, float* output, int width, int height) {
     // int leftBound = kernel_width/2;
     // int topBound = kernel_width/2;
     // int rightBound = width - kernel_width/2;
     // int botBound = height - kernel_width/2;
-    #pragma omp parallel for schedule(static) num_threads(NUMOFTHREADS)
+    #pragma omp parallel for schedule(static)
     for (int row = 0; row < height; row ++) {
         for (int col = 0; col < width; col ++) {
             //int border = 0;
@@ -54,15 +53,14 @@ void blur(float* pixels, float* output, int width, int height) {
 }
 
 void calculateGradient(float* pixelsAfterBlur, float* gradientMag, int* gradientAng, int width, int height, float* maxMag) {
-    int idx = 0;
-    #pragma omp parallel for schedule(static) num_threads(NUMOFTHREADS)
+    #pragma omp parallel for schedule(static)
     for (int row = 0; row < height; row ++) {
         for (int col = 0; col < width; col ++) {
+            int idx = row * width + col;
             float gy = (float) row == height - 1? 0 : pixelsAfterBlur[idx + width] - pixelsAfterBlur[idx];
             float gx = (float) col == width - 1? 0 : pixelsAfterBlur[idx + 1] - pixelsAfterBlur[idx];
             gradientMag[idx] = sqrt(gx * gx + gy * gy);
-            if (gradientMag[idx] > *maxMag)
-                *maxMag = gradientMag[idx];
+            
             float ang;
             if (gx < 0.000001 && gx > -0.000001) ang = 90;
             else ang = atan(gy / gx) / 3.1415926 * 180.0;
@@ -71,13 +69,20 @@ void calculateGradient(float* pixelsAfterBlur, float* gradientMag, int* gradient
 
             //printf("(gy / gx: %f  ang: %f \n", gy / gx, ang);
             gradientAng[idx] = ((int) (ang + 22.5) / 45) * 45;
-            idx++; 
+        }
+    }
+
+    for (int row = 0; row < height; row ++) {
+        for (int col = 0; col < width; col ++) {
+            int idx = row * width + col;
+            if (gradientMag[idx] > *maxMag)
+                *maxMag = gradientMag[idx];
         }
     }
 }
 
 void thin(float* gradientMag, int* gradientAng, float* pixelsAfterThin, int width, int height) {
-    #pragma omp parallel for schedule(static) num_threads(NUMOFTHREADS)
+    #pragma omp parallel for schedule(static)
     for (int row = 0; row < height; row ++) {
         for (int col = 0; col < width; col ++) {
             float mag = gradientMag[row * width + col];
@@ -118,10 +123,10 @@ void thin(float* gradientMag, int* gradientAng, float* pixelsAfterThin, int widt
 
 
 void doubleThreshold(float* pixelsAfterThin, int* pixelsStrongEdges, int* pixelsWeakEdges, int width, int height, float low_threshold, float high_threshold) {
-    int idx = 0;
-    #pragma omp parallel for schedule(static) num_threads(NUMOFTHREADS)
+    #pragma omp parallel for schedule(static)
     for (int row = 0; row < height; row ++) {
         for (int col = 0; col < width; col ++) {
+            int idx = row * width + col;
             float val = pixelsAfterThin[idx];
             if (val >= high_threshold){
                 pixelsStrongEdges[idx] = 1;
@@ -129,7 +134,6 @@ void doubleThreshold(float* pixelsAfterThin, int* pixelsStrongEdges, int* pixels
             if (val < high_threshold && val >= low_threshold){
                 pixelsWeakEdges[idx] = 1;
             }
-            idx++;
         }
     }
 }
@@ -276,13 +280,13 @@ void kernel_exchange(int index, int numDiv, int* pixelsStrongEdges, int* pixelsW
 
 void edgeTrack(int* pixelsStrongEdges, int* pixelsWeakEdges, int width, int height) {
     int* visited = (int*) calloc(sizeof(int), width * height);
-    int numDiv = 1;
-    for (int i = 0; i < 3; i += 1) {
-        #pragma omp parallel for schedule(static) num_threads(NUMOFTHREADS)
+    int numDiv = 16;
+    for (int i = 0; i < 4; i += 1) {
+        #pragma omp parallel for schedule(static)
         for (int index = 0; index < numDiv*numDiv; index ++) {
             kernel_exchange(index, numDiv, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
         }
-        #pragma omp parallel for schedule(dynamic) num_threads(NUMOFTHREADS)
+        #pragma omp parallel for schedule(dynamic)
         for (int index = 0; index < numDiv*numDiv; index ++) {
             kernel_dfs(index, numDiv, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
         }
@@ -304,7 +308,6 @@ float* split(string str, char delimiter, int numElts) {
 
 
 int main(int argc, char** argv) {  
-
     if (argc != 2) {
         printf("usage: DisplayImage.out <Image_Path>\n");
             return -1;
@@ -341,37 +344,54 @@ int main(int argc, char** argv) {
         printf("Unable to open file"); 
         return -1;
     }
-    printf("1\n");
-
-    auto start = std::chrono::high_resolution_clock::now();
-    /* 1. blur */
     float* pixelsAfterBlur = (float*) malloc(sizeof(float)*height*width);
-    blur(pixels, pixelsAfterBlur, width, height);
-    printf("2\n");
-
-    /* 2. gradient */
     float* gradientMag = (float*) malloc(sizeof(float)*height*width);
     int* gradientAng = (int*) malloc(sizeof(int)*height*width);
+    float* pixelsAfterThin = (float*) malloc(sizeof(float)*height*width);
+    int* pixelsStrongEdges = (int*) calloc(sizeof(int), height*width);
+    int* pixelsWeakEdges = (int*) calloc(sizeof(int), height*width);
+
+    printf("1\n");
+    auto start = std::chrono::high_resolution_clock::now();
+    /* 1. blur */
+    blur(pixels, pixelsAfterBlur, width, height);
+    printf("2\n");
+    auto ck2 = std::chrono::high_resolution_clock::now();
+
+    /* 2. gradient */
+
     float maxMag = -1;
     calculateGradient(pixelsAfterBlur, gradientMag, gradientAng, width, height, &maxMag);
     printf("3\n");
+    auto ck3 = std::chrono::high_resolution_clock::now();
 
     /* 3. non-maximum suppresion */
-    float* pixelsAfterThin = (float*) malloc(sizeof(float)*height*width);
     thin(gradientMag, gradientAng, pixelsAfterThin, width, height);
     printf("4\n");
     /* 4. double thresholding */
-    int* pixelsStrongEdges = (int*) calloc(sizeof(int), height*width);
-    int* pixelsWeakEdges = (int*) calloc(sizeof(int), height*width);
+    auto ck4 = std::chrono::high_resolution_clock::now();
+
     doubleThreshold(pixelsAfterThin, pixelsStrongEdges, pixelsWeakEdges, width, height, low_threshold * maxMag, high_threshold * maxMag);
     printf("5\n");
+    auto ck5 = std::chrono::high_resolution_clock::now();
 
     /* 5. edge tracking */
     edgeTrack(pixelsStrongEdges, pixelsWeakEdges, width, height);
     printf("6\n");
     auto finish = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(finish - start);
-    std::cout << "Total: " << elapsed.count() << " seconds.";
+    std::chrono::duration<double> blur_time = std::chrono::duration_cast<std::chrono::duration<double>>(ck2 - start);
+    std::chrono::duration<double> grad_time = std::chrono::duration_cast<std::chrono::duration<double>>(ck3 - ck2);
+    std::chrono::duration<double> sup_time = std::chrono::duration_cast<std::chrono::duration<double>>(ck4 - ck3);
+    std::chrono::duration<double> db_ts = std::chrono::duration_cast<std::chrono::duration<double>>(ck5 - ck4);
+    std::chrono::duration<double> ed_tk = std::chrono::duration_cast<std::chrono::duration<double>>(finish - ck5);
+    std::cout << "Total: " << elapsed.count() << " seconds.\n";
+    std::cout << "Blur: " << blur_time.count() << " seconds.\n";
+    std::cout << "Gradient: " << grad_time.count() << " seconds.\n";
+    std::cout << "Non-max sup: " << sup_time.count() << " seconds.\n";
+    std::cout << "Double thresholding: " << db_ts.count() << " seconds.\n";
+    std::cout << "Edge tracking: " << ed_tk.count() << " seconds.\n";
+    
     /* 6. display */
     ofstream outfile ("result.txt");
     if (outfile.is_open()) {
