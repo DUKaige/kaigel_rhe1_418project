@@ -244,7 +244,7 @@ void kernel_exchange(int index, int numDiv, int* pixelsStrongEdges, int* pixelsW
     // Left
     if (colStart > 0) {
         for (int row = rowStart; row < rowEnd; row ++) {
-            if (pixelsStrongEdges[row * width + colStart] == 1) {
+            if (pixelsStrongEdges[row * width + colStart] == 1 && pixelsWeakEdges[row * width + colStart - 1] == 1) {
                 pixelsStrongEdges[row * width + colStart - 1] = 1;
             }
         }
@@ -253,8 +253,8 @@ void kernel_exchange(int index, int numDiv, int* pixelsStrongEdges, int* pixelsW
     // Right
     if (colEnd < width) {
         for (int row = rowStart; row < rowEnd; row ++) {
-            if (pixelsStrongEdges[row * width + colEnd - 1] == 1) {
-                pixelsStrongEdges[row * width + colEnd] = 1;
+            if (pixelsStrongEdges[row * width + colEnd] == 1 && pixelsWeakEdges[row * width + colStart + 1] == 1) {
+                pixelsStrongEdges[row * width + colEnd + 1] = 1;
             }
         }
     }
@@ -262,7 +262,7 @@ void kernel_exchange(int index, int numDiv, int* pixelsStrongEdges, int* pixelsW
     // Top
     if (rowStart > 0) {
         for (int col = colStart; col < colEnd; col ++) {
-            if (pixelsStrongEdges[rowStart * width + col] == 1) {
+            if (pixelsStrongEdges[rowStart * width + col] == 1 && pixelsWeakEdges[(rowStart - 1) * width + colStart] == 1) {
                 pixelsStrongEdges[(rowStart - 1) * width + col] = 1;
             }
         }
@@ -271,8 +271,8 @@ void kernel_exchange(int index, int numDiv, int* pixelsStrongEdges, int* pixelsW
     // Bottom
     if (rowEnd < height) {
         for (int col = colStart; col < colEnd; col ++) {
-            if (pixelsStrongEdges[(rowEnd - 1) * width + col] == 1) {
-                pixelsStrongEdges[rowEnd * width + col] = 1;
+            if (pixelsStrongEdges[(rowEnd) * width + col] == 1 && pixelsWeakEdges[(rowStart + 1) * width + colStart] == 1) {
+                pixelsStrongEdges[(rowEnd + 1) * width + col] = 1;
             }
         }
     }
@@ -286,6 +286,7 @@ void edgeTrack(int* pixelsStrongEdges, int* pixelsWeakEdges, int width, int heig
         for (int index = 0; index < numDiv*numDiv; index ++) {
             kernel_exchange(index, numDiv, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
         }
+        
         #pragma omp parallel for schedule(dynamic)
         for (int index = 0; index < numDiv*numDiv; index ++) {
             kernel_dfs(index, numDiv, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);

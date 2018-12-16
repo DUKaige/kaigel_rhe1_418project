@@ -3,13 +3,15 @@
 #include <fstream>
 #include <string>
 #include <sstream>
+#include <vector>
+#include <chrono>
 
 using namespace std;
 
 #define kernel_width 7
 #define threadsPerBlock 512
 #define NUM_ITER_DFS 3
-
+#define DFS_BLOCK_SIZE 8
 float stoff(const char* s){
   float rez = 0, fact = 1;
   if (*s == '-'){
@@ -143,8 +145,8 @@ void blur(float* pixels, float* output, int width, int height, int N, int blocks
     kernel_blur<<<blocks, threadsPerBlock>>>(cudaPixels, cudaOutput, width, height, N);
     cudaDeviceSynchronize();
     cudaMemcpy(output, cudaOutput, N * sizeof(float), cudaMemcpyDeviceToHost);
-    //cudaFree(cudaPixels);
-    //cudaFree(cudaOutput);
+    cudaFree(cudaPixels);
+    cudaFree(cudaOutput);
 }
 
 void calculateGradient(float* pixelsAfterBlur, float* gradientMag, int* gradientAng, int width, int height, float* maxMag, int N, int blocks) {
@@ -208,13 +210,32 @@ void doubleThreshold(float* pixelsAfterThin, int* pixelsStrongEdges, int* pixels
     cudaFree(cudaWeakEdges);
 }
 
+__device__ __inline__ void push_back(int* stack, int* stack_pt, int val) {
+    stack[*stack_pt] = val;
+    *stack_pt ++;
+}
+
+__device__ __inline__ int empty(int* stack, int* stack_pt) {
+    if (*stack_pt == 0) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+__device__ __inline__ int pop_back(int* stack, int* stack_pt) {
+    int val = stack[*stack_pt - 1];
+    *stack_pt --;
+    return val;
+}
+
 __device__ __inline__ void dfsRange(int row, int col, int lorow, int hirow, int locol, int hicol, int* pixelsStrongEdges, int* pixelsWeakEdges, int* visited, int width, int height) {
-    vector<int> stack;
+    int stack[DFS_BLOCK_SIZE * DFS_BLOCK_SIZE];
+    int stack_pt = 0;
     int idx = row * width + col;
-    stack.push_back(idx);
-    while (!stack.empty()) {
-        idx = stack.back();
-        stack.pop_back();
+    push_back(stack, &stack_pt, idx);
+    while (!empty(stack, &stack_pt)) {
+        idx = pop_back(stack, &stack_pt);
         if (pixelsWeakEdges[idx]) {
             pixelsStrongEdges[idx] = 1;
         }
@@ -223,13 +244,13 @@ __device__ __inline__ void dfsRange(int row, int col, int lorow, int hirow, int 
             if (row > lorow) {
                 id = (row - 1) * width + col;
                 if (!visited[id]) {
-                    stack.push_back(id);
+                    push_back(stack, &stack_pt, id);
                     visited[id] = 1;
                 }
                 if (col > locol) {
                     id = (row - 1) * width + col - 1;
                     if (!visited[id]){
-                        stack.push_back(id);
+                        push_back(stack, &stack_pt, id);
                         visited[id] = 1;
                     } 
                 }
@@ -237,7 +258,7 @@ __device__ __inline__ void dfsRange(int row, int col, int lorow, int hirow, int 
                 if (col < hicol - 1) {
                     id = (row - 1) * width + col + 1;
                     if (!visited[id]) {
-                        stack.push_back(id);
+                        push_back(stack, &stack_pt, id);
                         visited[id] = 1;
                     } 
                 }
@@ -246,13 +267,13 @@ __device__ __inline__ void dfsRange(int row, int col, int lorow, int hirow, int 
             if (row < hirow - 1) {
                 id = (row + 1) * width + col;
                 if (!visited[id]) {
-                    stack.push_back(id);
+                    push_back(stack, &stack_pt, id);
                     visited[id] = 1;
                 }
                 if (col > locol) {
                     id = (row + 1) * width + col - 1;
                     if (!visited[id]){
-                        stack.push_back(id);
+                        push_back(stack, &stack_pt, id);
                         visited[id] = 1;
                     } 
                 }
@@ -260,7 +281,7 @@ __device__ __inline__ void dfsRange(int row, int col, int lorow, int hirow, int 
                 if (col < hicol - 1) {
                     id = (row + 1) * width + col + 1;
                     if (!visited[id]) {
-                        stack.push_back(id);
+                        push_back(stack, &stack_pt, id);
                         visited[id] = 1;
                     }
                 }
@@ -269,7 +290,7 @@ __device__ __inline__ void dfsRange(int row, int col, int lorow, int hirow, int 
             if (col > locol) {
                 id = row * width + col - 1;
                 if (!visited[id]) {
-                    stack.push_back(id);
+                    push_back(stack, &stack_pt, id);
                     visited[id] = 1;
                 }            
             }
@@ -277,7 +298,7 @@ __device__ __inline__ void dfsRange(int row, int col, int lorow, int hirow, int 
             if (col < hicol - 1) {
                 id = row * width + col + 1;
                 if (!visited[id]) {
-                    stack.push_back(id);
+                    push_back(stack, &stack_pt, id);
                     visited[id] = 1;
                 }               
             }
@@ -354,11 +375,14 @@ __global__ void kernel_exchange(int numDiv, int* pixelsStrongEdges, int* pixelsW
 
 void edgeTrack(int* pixelsStrongEdges, int* pixelsWeakEdges, int width, int height) {
     int* visited = (int*) calloc(sizeof(int), width * height);
-    int numDiv = min(min(256, height/16), width/16);
+    int numDiv = min((height + DFS_BLOCK_SIZE - 1)/DFS_BLOCK_SIZE
+        , (width + DFS_BLOCK_SIZE - 1)/DFS_BLOCK_SIZE);
     int blocks = (numDiv * numDiv + threadsPerBlock - 1) / threadsPerBlock;
     for (int i = 0; i < NUM_ITER_DFS; i ++) {
-        kernel_exchange(numDiv, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
+        kernel_exchange<<<blocks, threadsPerBlock>>>(numDiv, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
+        cudaDeviceSynchronize();
         kernel_dfs<<<blocks, threadsPerBlock>>>(numDiv, pixelsStrongEdges, pixelsWeakEdges, visited, width, height);
+        cudaDeviceSynchronize();    
     }
 
 }
@@ -383,8 +407,8 @@ int main(int argc, char** argv) {
             return -1;
     }
 
-    float low_threshold = 0.05;
-    float high_threshold = 0.1;
+    float low_threshold = 0.1;
+    float high_threshold = 0.15;
     float* pixels;
     int height;
     int width;
@@ -415,29 +439,46 @@ int main(int argc, char** argv) {
 
     int N = height * width;
     int blocks = (N + threadsPerBlock - 1) / threadsPerBlock;
+    auto start = std::chrono::high_resolution_clock::now();
 
     // /* 1. blur */
     float* pixelsAfterBlur = (float*) malloc(sizeof(float)*height*width);
     blur(pixels, pixelsAfterBlur, width, height, N, blocks);
+    auto ck2 = std::chrono::high_resolution_clock::now();
 
     /* 2. gradient */
     float* gradientMag = (float*) malloc(sizeof(float)*height*width);
     int* gradientAng = (int*) malloc(sizeof(int)*height*width);
     float maxMag = -1;
     calculateGradient(pixelsAfterBlur, gradientMag, gradientAng, width, height, &maxMag, N, blocks);
+    auto ck3 = std::chrono::high_resolution_clock::now();
 
     /* 3. non-maximum suppresion */
     float* pixelsAfterThin = (float*) malloc(sizeof(float)*height*width);
     thin(gradientMag, gradientAng, pixelsAfterThin, width, height, N, blocks);
+    auto ck4 = std::chrono::high_resolution_clock::now();
 
     /* 4. double thresholding */
     int* pixelsStrongEdges = (int*) calloc(sizeof(int), height*width);
     int* pixelsWeakEdges = (int*) calloc(sizeof(int), height*width);
     doubleThreshold(pixelsAfterThin, pixelsStrongEdges, pixelsWeakEdges, width, height, low_threshold * maxMag, high_threshold * maxMag, N, blocks);
+    auto ck5 = std::chrono::high_resolution_clock::now();
 
     /* 5. edge tracking */
     edgeTrack(pixelsStrongEdges, pixelsWeakEdges, width, height);
-
+    auto finish = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(finish - start);
+    std::chrono::duration<double> blur_time = std::chrono::duration_cast<std::chrono::duration<double>>(ck2 - start);
+    std::chrono::duration<double> grad_time = std::chrono::duration_cast<std::chrono::duration<double>>(ck3 - ck2);
+    std::chrono::duration<double> sup_time = std::chrono::duration_cast<std::chrono::duration<double>>(ck4 - ck3);
+    std::chrono::duration<double> db_ts = std::chrono::duration_cast<std::chrono::duration<double>>(ck5 - ck4);
+    std::chrono::duration<double> ed_tk = std::chrono::duration_cast<std::chrono::duration<double>>(finish - ck5);
+    std::cout << "Total: " << elapsed.count() << " seconds.\n";
+    std::cout << "Blur: " << blur_time.count() << " seconds.\n";
+    std::cout << "Gradient: " << grad_time.count() << " seconds.\n";
+    std::cout << "Non-max sup: " << sup_time.count() << " seconds.\n";
+    std::cout << "Double thresholding: " << db_ts.count() << " seconds.\n";
+    std::cout << "Edge tracking: " << ed_tk.count() << " seconds.\n";
 
     /* 6. display */
     ofstream outfile ("result.txt");

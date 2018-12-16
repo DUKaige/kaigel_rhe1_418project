@@ -244,8 +244,8 @@ void kernel_exchange(int index, int numDiv, int* pixelsStrongEdges, int* pixelsW
     // Right
     if (colEnd < width) {
         for (int row = rowStart; row < rowEnd; row ++) {
-            if (pixelsStrongEdges[row * width + colEnd - 1] == 1) {
-                pixelsStrongEdges[row * width + colEnd] = 1;
+            if (pixelsStrongEdges[row * width + colEnd] == 1) {
+                pixelsStrongEdges[row * width + colEnd + 1] = 1;
             }
         }
     }
@@ -262,8 +262,8 @@ void kernel_exchange(int index, int numDiv, int* pixelsStrongEdges, int* pixelsW
     // Bottom
     if (rowEnd < height) {
         for (int col = colStart; col < colEnd; col ++) {
-            if (pixelsStrongEdges[(rowEnd - 1) * width + col] == 1) {
-                pixelsStrongEdges[rowEnd * width + col] = 1;
+            if (pixelsStrongEdges[(rowEnd) * width + col] == 1) {
+                pixelsStrongEdges[(rowEnd + 1) * width + col] = 1;
             }
         }
     }
