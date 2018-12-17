@@ -69,6 +69,12 @@
           border-radius: 10px;
           border-color: white;
       }
+
+      img.full {
+          max-width: 100%;
+          max-height: 100%;
+          margin:20px;
+      }
       a{
           text-decoration: none;
           color: black;
@@ -130,6 +136,24 @@
         <li><a href="https://dukaige.github.io/kaigel_rhe1_418project/"><font color=white>Homepage</font></a></li>
 
       </ul>
+
+      <ul class="nav navbar-nav">
+        <li> <a href = "page_resources/proposal.pdf"> <font color=white> Project Proposal </font> </a> </li>
+      </ul>
+
+      <ul class="nav navbar-nav">
+        <li> <a href = "page_resources/checkpoint.pdf"> <font color=white> Project Checkpoint </font> </a> </li>
+      </ul>
+
+      <ul class="nav navbar-nav">
+        <li> <a href = "page_resources/report.pdf"> <font color=white> Final Report </font> </a> </li>
+      </ul>
+
+      <ul class="nav navbar-nav">
+        <li> <a href = "page_resources/poster.pdf"> <font color=white> Poster </font> </a> </li>
+      </ul>
+
+
     </div><!-- /.navbar-collapse -->
   </div><!-- /.container-fluid -->
 </nav>
@@ -146,20 +170,102 @@
     <p class="centered">A CUDA-Based Parallel Image Segmentation Tool</p>
   </div>
 
-  <hr/><br><br><br>
 
   <div class = "row">
-    <p class= "secondTitle" id="ct1">Project Proposal</p>
-  </div><br>
+    <p class="centered">Dustin Liu, Karen He</p>
+  </div>
+
+  <hr/><br>
 
     <div class = "row">
-	<p> Link: <a href = "https://drive.google.com/file/d/1iGGdk-ItLLtjGSO1cC0PzuultBC2KHkZ/view?usp=sharing"> https://drive.google.com/file/d/1iGGdk-ItLLtjGSO1cC0PzuultBC2KHkZ/view?usp=sharing </a></p>
+  <p> Project Proposal: </p>
     </div class = "row">
-  <div class = "row">
-      <div class = "col-md-12">
-            <p>M.</p>
 
-</div>
+        <div class = "row">
+  <p> Project Checkpoint: <a href = "page_resources/checkpoint.pdf"> Link </a></p>
+    </div class = "row">
+
+        <div class = "row">
+  <p> Final Report: <a href = "page_resources/report.pdf"> Link </a></p>
+    </div class = "row">
+
+        <div class = "row">
+  <p> Final Poster: <a href = "page_resources/poster.pdf"> Link </a></p>
+    </div class = "row">
+
+
+  <hr/><br>
+
+  <div class = "row">
+    <p class = "secondTitle">Summary</p>
+  </div> 
+<div class = "row">
+  <p>  We implemented from scratch two parallel versions of the Canny edge detector, a CUDA version on GPU and an OpenMP version on CPU, and compared the performance of the two implementations. We optimized our implementation to achieve a 8 times speedup with our GPU implementation and a 6 times speedup with our CPU implementation using 8 cores.</p>
+    </div class = "row">
+
+
+
+  <hr/><br>
+
+  <div class = "row">
+    <p class = "secondTitle">Demo</p>
+  </div> 
+  <div class = "row">
+    <div class = "col-md-6">
+        <img class = "full" src="page_resources/2k.jpg" alt="2k">
+    </div>
+    <div class = "col-md-6">
+        <img class = "full" src="page_resources/2kresult.jpg" alt="2k">
+    </div>
+
+  </div class = "row">
+
+  <div class = "row">
+    <div class = "col-md-6">
+        <img class = "full" src="page_resources/4k.jpg" alt="4k">
+    </div>
+    <div class = "col-md-6">
+        <img class = "full" src="page_resources/4kresult.jpg" alt="4k">
+    </div>
+
+  </div class = "row">
+
+  <div class = "row">
+    <div class = "col-md-6">
+        <img class = "full" src="page_resources/8k.jpg" alt="8k">
+    </div>
+    <div class = "col-md-6">
+        <img class = "full" src="page_resources/8kresult.jpg" alt="8kresult">
+    </div>
+
+  </div class = "row">
+
+
+  <hr/><br>
+
+  <div class = "row">
+    <p class = "secondTitle">Performance</p>
+  </div> 
+
+  <div class = "row">
+    <div class = "col-md-6">
+        <img class = "full" src="page_resources/cpu.png" alt="2k">
+    </div>
+    <div class = "col-md-6">
+        <img class = "full" src="page_resources/cpucomp.png" alt="2k">
+    </div>
+
+  </div class = "row">
+
+  <div class = "row">
+    <div class = "col-md-6">
+        <img class = "full" src="page_resources/gpu.png" alt="2k">
+    </div>
+    <div class = "col-md-6">
+        <img class = "full" src="page_resources/gpucomp.png" alt="2k">
+    </div>
+
+  </div class = "row">
 
 <script>
     function height()
